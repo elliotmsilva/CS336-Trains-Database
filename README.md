@@ -10,8 +10,10 @@
 1. Clone this repo into your Eclipse workspace
 2. In Eclipse: File → Import → Existing Projects into Workspace
 3. Open ApplicationDB.java and change the password to your local MySQL password
-        **DO NOT PUSH ANY CHANGES TO THIS FILE
-        **THE LOGIN IS FOR YOUR DATABASE ACCESS ONLY, IT IS DIFFERENT FOR EVERYONE
+
+   **DO NOT PUSH ANY CHANGES TO THIS FILE
+
+   **THE LOGIN IS FOR YOUR DATABASE ACCESS ONLY, IT IS DIFFERENT FOR EVERYONE
    
 5. Right-click project → Run As → Run on Server (Tomcat 11)
 6. Navigate to localhost:8080/CS336Project/login.jsp
