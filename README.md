@@ -15,8 +15,11 @@
 
    **THE LOGIN IS FOR YOUR DATABASE ACCESS ONLY, IT IS DIFFERENT FOR EVERYONE
    
-5. Right-click project → Run As → Run on Server (Tomcat 11)
-6. Navigate to localhost:8080/CS336Project/login.jsp
+4. Right-click project → Run As → Run on Server (Tomcat 11)
+
+      **MAKE SURE TO CLOSE THE SERVER WHEN CLOSING ECLIPSE
+
+5. Navigate to localhost:8080/CS336Project/login.jsp
 
 ### Test Credentials
 - Customer: username=jsmith / password=password123
