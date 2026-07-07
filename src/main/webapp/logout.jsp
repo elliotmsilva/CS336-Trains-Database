@@ -10,12 +10,14 @@
 </head>
 <body>
 
+
 <%
+	//on logout, invalidate session and prompt to sign in again
     session.invalidate();
 %>
 
 <h3>You have been successfully signed out.</h3>
-<a href="login.jsp">Login again?</a>
+<a href="login.jsp">Login again</a>
 
 </body>
 </html>

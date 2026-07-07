@@ -73,15 +73,12 @@
             
         <% } else { %>
             <h3>Invalid username or password.</h3>
-            <!-- fall through to show the form again below -->
         <% }
 
+     
         
-        
-        
-       
+     //form was not submitted, show login screen   
     } else { %>
-        <!-- show the login form -->
         <h2>Train Database Management System Login</h2>
     <% } %>
 
