@@ -22,5 +22,7 @@
 
 ## Important
 After cloning, run this command in your Eclipse terminal to prevent accidentally pushing your local DB password:
+
 git update-index --assume-unchanged src/main/java/com/cs336/dbmstrainsproject/ApplicationDB.java
+
 Then open ApplicationDB.java and change the password to your local MySQL password.
