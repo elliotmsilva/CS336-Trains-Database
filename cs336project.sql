@@ -55,9 +55,17 @@ CREATE TABLE Employee (
     `password` VARCHAR(100) NOT NULL,
     `role` VARCHAR(20) NOT NULL,
     -- role is 'manager' or 'customer_rep'
+    message_id INT,
+    -- only relevant for customer_rep role
     
     PRIMARY KEY (ssn),
-    UNIQUE KEY uq_employee_username (username)
+    UNIQUE KEY uq_employee_username (username),
+
+    CONSTRAINT fk_employee_message
+        FOREIGN KEY (message_id)
+        REFERENCES Forum (message_id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL
 ) ENGINE = InnoDB;
 
 
