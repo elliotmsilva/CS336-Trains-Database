@@ -66,14 +66,18 @@
 
         
         //login results:
-        if (loggedIn) { %>
-            <h3>Welcome, <%= username %>!</h3>
-            <p>You are logged in as: <%= role %></p>
-            <a href="logout.jsp">Logout</a>
-            
-        <% } else { %>
-            <h3>Invalid username or password.</h3>
-        <% }
+        if (loggedIn) {
+	    session.setAttribute("username", username);
+	    session.setAttribute("role", role);
+	
+	    if (role.equals("manager")) {
+	        response.sendRedirect("adminhome.jsp");
+	    } else if (role.equals("rep")) {
+	        response.sendRedirect("representativehome.jsp");
+	    } else {
+	        response.sendRedirect("customerhome.jsp");
+	    }
+	}
 
      
         
@@ -98,6 +102,8 @@
         </table>
         <input type="submit" value="Login">
     </form>
+    <br>
+    New customer? <a href="register.jsp">Register here</a>
 <% } %>
 
 </body>
