@@ -22,8 +22,7 @@
 5. Navigate to localhost:8080/CS336Project/login.jsp
 
 ### Test Credentials
-- Customer: username=jsmith / password=password123
-- Manager: username=jdoe / password=admin123
+- Manager: username=Admin / password=adminpass
 
 ## Important
 After cloning, run this command in your Eclipse terminal to prevent accidentally pushing your local DB password:
