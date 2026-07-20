@@ -16,26 +16,26 @@
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
 
-    //if 
+    //if fail, return to login
     if (username == null || !role.equals("customer")) {
         response.sendRedirect("login.jsp");
         return;
     }
 %>
 
-    <h2>Welcome, <%= username %>!</h2>
+    <h2>Welcome, Passenger <%= username %>!</h2>
     <hr>
 
     <h3>Dashboard:</h3>
     <table>
         <tr>
-            <td><a href="dashboard.jsp">Search Train Schedules</a></td>
+            <td><a href="custschedule.jsp">Search Train Schedules</a></td>
         </tr>
         <tr>
-            <td><a href="reservation.jsp">My Reservations</a></td>
+            <td><a href="custreservation.jsp">My Reservations</a></td>
         </tr>
         <tr>
-            <td><a href="forum.jsp">Customer Service</a></td>
+            <td><a href="custforum.jsp">Customer Service</a></td>
         </tr>
     </table>
 

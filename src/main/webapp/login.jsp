@@ -14,11 +14,11 @@
 <%
 	//simple log in page for dbms train project
 	//two sample logins made on mySQL:
-		//jane doe (user: jdoe) (pass: admin123)
-		//john smith (user: jsmith) (pass: password123)
-	
+		//jane doe (user: Admin) (pass: adminpass)
+		
     String username = request.getParameter("username");
     String password = request.getParameter("password");
+    String loginError = null;
 
     //only try to log in if the form was submitted
     if (username != null && password != null) {
@@ -29,27 +29,42 @@
         String role = null;
 
         try {
-            //check passenger table from mysql database
-            String sql = "SELECT * FROM passenger WHERE username=? AND password=?";
-            PreparedStatement ps = conn.prepareStatement(sql);
+            //first check if username exists in Passenger table
+            String checkUser = "SELECT * FROM Passenger WHERE username=?";
+            PreparedStatement ps = conn.prepareStatement(checkUser);
             ps.setString(1, username);
-            ps.setString(2, password);
             ResultSet rs = ps.executeQuery();
 
+            //username exists in Passenger, now check password
             if (rs.next()) {
-                loggedIn = true;
-                role = "passenger";
-                
-            } else {
-                //check employee table
-                sql = "SELECT * FROM employee WHERE username=? AND password=?";
-                ps = conn.prepareStatement(sql);
-                ps.setString(1, username);
-                ps.setString(2, password);
-                rs = ps.executeQuery();
-                if (rs.next()) {
+                if (rs.getString("password").equals(password)) {
                     loggedIn = true;
-                    role = rs.getString("role");
+                    role = "customer";
+                } else {
+                    loginError = "Incorrect password. Please try again.";
+                }
+                
+                
+            //username not in passenger, check employee table
+            } else {
+                checkUser = "SELECT * FROM Employee WHERE username=?";
+                ps = conn.prepareStatement(checkUser);
+                ps.setString(1, username);
+                rs = ps.executeQuery();
+
+             	// username exists in Employee, now check password
+                if (rs.next()) {
+                    if (rs.getString("password").equals(password)) {
+                        loggedIn = true;
+                        role = rs.getString("role");
+                    } else {
+                        loginError = "Incorrect password. Please try again.";
+                    }
+                    
+                    
+                // username not found in either table
+                } else {
+                    loginError = "Username not found. Please check your username or register a new account.";
                 }
             }
 
@@ -89,6 +104,14 @@
 <% if (request.getParameter("username") == null ||
        (request.getParameter("username") != null &&
         session.getAttribute("username") == null)) { %>
+        
+        
+    <% 
+    //if theres an issue with the username or password, display error
+    if (loginError != null) { %>
+    <p style="color:red;"><%= loginError %></p>
+<% } %>
+
     <form method="post" action="login.jsp">
         <table>
             <tr>
