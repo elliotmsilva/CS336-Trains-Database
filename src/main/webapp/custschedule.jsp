@@ -1,11 +1,26 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8"
     pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*" %>
+<%!
+    // ---- SAME fare rules as custreservation.jsp — keep these in sync! ----
+    private double computePrice(int baseFare, String passengerType, String tripType) {
+        double price = baseFare;
+        if ("Child".equals(passengerType)) {
+            price *= 0.75;   // 25% off
+        } else if ("Senior".equals(passengerType)) {
+            price *= 0.50;   // 50% off
+        }
+        if ("round-trip".equals(tripType)) {
+            price *= 2;
+        }
+        return price;
+    }
+%>
 <%
-    // ---- session check (customer only) ----
+    // ---- session check (passenger only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"customer".equals(role)) {
+    if (username == null || !"passenger".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
@@ -15,7 +30,6 @@
 
     // schedule the user clicked "Book" on (null = none selected)
     String bookScheduleId = request.getParameter("book_schedule_id");
-    String bookStopId = request.getParameter("book_stop_id");
 
     // ---- handle booking form submission ----
     String bookingMessage = null;
@@ -23,7 +37,6 @@
             && request.getParameter("confirm_booking") != null) {
 
         String scheduleId = request.getParameter("schedule_id");
-        String stopId = request.getParameter("stop_id");
         String tripType = request.getParameter("trip_type");
         String passengerType = request.getParameter("passenger_type");
 
@@ -34,21 +47,26 @@
             bconn = DriverManager.getConnection(
                 "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
 
+            // stop_id is copied FROM the schedule row itself, so the
+            // reservation can never reference a stop that contradicts
+            // its schedule (the schema wouldn't stop that; this does).
             String insertSql =
                 "INSERT INTO Reservation " +
                 "(trip_type, passenger_type, reservation_date, " +
                 " schedule_id, passenger_username, stop_id) " +
-                "VALUES (?, ?, CURDATE(), ?, ?, ?)";
+                "SELECT ?, ?, CURDATE(), sc.schedule_id, ?, sc.stop_id " +
+                "FROM Schedule sc WHERE sc.schedule_id = ?";
 
             bps = bconn.prepareStatement(insertSql);
             bps.setString(1, tripType);
             bps.setString(2, passengerType);
-            bps.setInt(3, Integer.parseInt(scheduleId));
-            bps.setString(4, username);
-            bps.setInt(5, Integer.parseInt(stopId));
-            bps.executeUpdate();
+            bps.setString(3, username);
+            bps.setInt(4, Integer.parseInt(scheduleId));
+            int rows = bps.executeUpdate();
 
-            bookingMessage = "Reservation booked! View it on the My Reservations page.";
+            bookingMessage = (rows > 0)
+                ? "Reservation booked! View it on the My Reservations page."
+                : "That schedule no longer exists.";
             bookScheduleId = null; // hide the form again
         } catch (Exception e) {
             bookingMessage = "Booking failed: " + e.getMessage();
@@ -77,13 +95,43 @@
     <p><b><%= bookingMessage %></b></p>
 <%  } %>
 
-<%  // ---- booking form (shows only after clicking Book) ----
-    if (bookScheduleId != null && bookStopId != null) { %>
+<%
+    Connection conn = null;
+    PreparedStatement ps = null;
+    ResultSet rs = null;
+    try {
+        Class.forName("com.mysql.cj.jdbc.Driver");
+        conn = DriverManager.getConnection(
+            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+
+        // ---- booking form (shows only after clicking Book) ----
+        if (bookScheduleId != null) {
+            ps = conn.prepareStatement(
+                "SELECT sc.schedule_id, tl.name AS line_name, tl.fare, " +
+                "       s.station_name, ts.departure_datetime " +
+                "FROM Schedule sc " +
+                "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
+                "JOIN TrainStop ts   ON sc.stop_id = ts.stop_id " +
+                "JOIN Station s      ON ts.station_id = s.station_id " +
+                "WHERE sc.schedule_id = ?");
+            ps.setInt(1, Integer.parseInt(bookScheduleId));
+            rs = ps.executeQuery();
+            if (rs.next()) {
+                int fare = rs.getInt("fare");
+%>
     <div style="border:1px solid black; padding:10px; margin-bottom:10px;">
-        <h3>Book Schedule #<%= bookScheduleId %></h3>
+        <h3>Book: <%= rs.getString("line_name") %> from
+            <%= rs.getString("station_name") %>
+            (<%= rs.getTimestamp("departure_datetime") %>)</h3>
+        <p>
+            Prices &mdash;
+            Adult: $<%= String.format("%.2f", computePrice(fare, "Adult", "one-way")) %> |
+            Child: $<%= String.format("%.2f", computePrice(fare, "Child", "one-way")) %> |
+            Senior: $<%= String.format("%.2f", computePrice(fare, "Senior", "one-way")) %>
+            (one-way; round-trip is double)
+        </p>
         <form method="post" action="custschedule.jsp">
-            <input type="hidden" name="schedule_id" value="<%= bookScheduleId %>">
-            <input type="hidden" name="stop_id" value="<%= bookStopId %>">
+            <input type="hidden" name="schedule_id" value="<%= rs.getInt("schedule_id") %>">
 
             Trip type:
             <select name="trip_type">
@@ -102,10 +150,19 @@
             <a href="custschedule.jsp">Cancel</a>
         </form>
     </div>
-<%  } %>
+<%
+            } else {
+%>
+    <p><b>That schedule was not found.</b></p>
+<%
+            }
+            rs.close();
+            ps.close();
+        }
+%>
 
     <form method="get" action="custschedule.jsp">
-        Search by station or line:
+        Search by station, city, or line:
         <input type="text" name="search" value="<%= search %>">
         <input type="submit" value="Search">
         <a href="custschedule.jsp">Clear</a>
@@ -124,26 +181,17 @@
             <th></th>
         </tr>
 <%
-    Connection conn = null;
-    PreparedStatement ps = null;
-    ResultSet rs = null;
-    try {
-        Class.forName("com.mysql.cj.jdbc.Driver");
-        conn = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
-
         String sql =
-            "SELECT s.schedule_id, tl.name AS line_name, tl.fare, s.train_id, " +
-            "       st.station_name, st.city, st.state, " +
-            "       ts.stop_id, ts.arrival_datetime, ts.departure_datetime " +
-            "FROM Schedule s " +
-            "JOIN TransitLine tl ON s.line_id = tl.line_id " +
-            "JOIN TrainStop ts   ON s.stop_id = ts.stop_id " +
-            "JOIN Station st     ON ts.station_id = st.station_id ";
+            "SELECT sc.schedule_id, tl.name AS line_name, tl.fare, sc.train_id, " +
+            "       s.station_name, s.city, s.state, " +
+            "       ts.arrival_datetime, ts.departure_datetime " +
+            "FROM Schedule sc " +
+            "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
+            "JOIN TrainStop ts   ON sc.stop_id = ts.stop_id " +
+            "JOIN Station s      ON ts.station_id = s.station_id ";
 
         if (!search.isEmpty()) {
-            sql += "WHERE st.station_name LIKE ? OR tl.name LIKE ? " +
-                   "   OR st.city LIKE ? ";
+            sql += "WHERE s.station_name LIKE ? OR tl.name LIKE ? OR s.city LIKE ? ";
         }
         sql += "ORDER BY ts.departure_datetime";
 
@@ -170,9 +218,7 @@
             <td><%= rs.getTimestamp("arrival_datetime") %></td>
             <td>$<%= String.format("%.2f", (double) rs.getInt("fare")) %></td>
             <td>
-                <a href="custschedule.jsp?book_schedule_id=<%= rs.getInt("schedule_id") %>&book_stop_id=<%= rs.getInt("stop_id") %>">
-                    Book
-                </a>
+                <a href="custschedule.jsp?book_schedule_id=<%= rs.getInt("schedule_id") %>">Book</a>
             </td>
         </tr>
 <%
