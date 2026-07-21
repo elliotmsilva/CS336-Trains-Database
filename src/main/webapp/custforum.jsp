@@ -1,11 +1,20 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8"
     pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*" %>
+<%!
+    // escape <, >, & so posted text can't inject HTML/scripts
+    private String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+%>
 <%
-    // ---- session check (customer only) ----
+    // ---- session check (passenger only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"customer".equals(role)) {
+    if (username == null || !"passenger".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
@@ -93,7 +102,7 @@
 %>
     <div style="border:1px solid black; padding:10px; margin-bottom:10px;">
         <i><%= rs.getTimestamp("message_date") %></i>
-        <p><%= rs.getString("body_text") %></p>
+        <p><%= esc(rs.getString("body_text")) %></p>
     </div>
 <%
         }
