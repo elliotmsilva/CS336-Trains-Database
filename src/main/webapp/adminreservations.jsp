@@ -2,60 +2,28 @@
     pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*" %>
 <%!
-    // ---- SAME fare rules as custreservation/custschedule — keep in sync! ----
-    private double computePrice(int baseFare, String passengerType, String tripType) {
-        double price = baseFare;
-        if ("Child".equals(passengerType)) {
-            price *= 0.75;   // 25% off
-        } else if ("Senior".equals(passengerType)) {
-            price *= 0.50;   // 50% off
-        }
-        if ("round-trip".equals(tripType)) {
-            price *= 2;
-        }
-        return price;
+    private String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 %>
 <%
-    // ---- session check (manager only) ----
+    // ---- session check (admin only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"manager".equals(role)) {
+    if (username == null || !"admin".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
 
-    String filterUser = request.getParameter("filter_user");
-    String filterLine = request.getParameter("filter_line");
-    if (filterUser == null) filterUser = "";
-    if (filterLine == null) filterLine = "";
-
-    String message = null;
-
-    // ---- handle admin cancellation ----
-    String cancelId = request.getParameter("cancel_id");
-    if (cancelId != null) {
-        Connection cconn = null;
-        PreparedStatement cps = null;
-        try {
-            Class.forName("com.mysql.cj.jdbc.Driver");
-            cconn = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
-
-            // no username restriction here — manager can cancel any reservation
-            cps = cconn.prepareStatement(
-                "DELETE FROM Reservation WHERE reservation_id = ?");
-            cps.setInt(1, Integer.parseInt(cancelId));
-            int rows = cps.executeUpdate();
-            message = (rows > 0) ? "Reservation cancelled."
-                                 : "Reservation not found.";
-        } catch (Exception e) {
-            message = "Error cancelling: " + e.getMessage();
-        } finally {
-            if (cps != null) cps.close();
-            if (cconn != null) cconn.close();
-        }
-    }
+    // ---- search params ----
+    String custSearch = request.getParameter("customer");
+    String lineSearch = request.getParameter("line");
+    if (custSearch == null) custSearch = "";
+    if (lineSearch == null) lineSearch = "";
 %>
 <!DOCTYPE html>
 <html>
@@ -67,39 +35,21 @@
     <h1>All Reservations</h1>
     <p>
         <a href="adminhome.jsp">Home</a> |
-        <a href="adminmanage.jsp">Manage System</a> |
-        <a href="adminreports.jsp">Reports</a> |
+        <a href="adminmanage.jsp">Manage Representatives</a> |
+        <a href="adminreports.jsp">Sales Reports</a> |
         <a href="logout.jsp">Logout</a>
     </p>
 
-<%  if (message != null) { %>
-    <p><b><%= message %></b></p>
-<%  } %>
-
     <form method="get" action="adminreservations.jsp">
-        Passenger username:
-        <input type="text" name="filter_user" value="<%= filterUser %>">
+        Customer username:
+        <input type="text" name="customer" value="<%= esc(custSearch) %>">
         Transit line:
-        <input type="text" name="filter_line" value="<%= filterLine %>">
-        <input type="submit" value="Filter">
+        <input type="text" name="line" value="<%= esc(lineSearch) %>">
+        <input type="submit" value="Search">
         <a href="adminreservations.jsp">Clear</a>
     </form>
     <br>
 
-    <table border="1" cellpadding="5">
-        <tr>
-            <th>Res. #</th>
-            <th>Passenger</th>
-            <th>Booked On</th>
-            <th>Line</th>
-            <th>Train</th>
-            <th>Station</th>
-            <th>Departure</th>
-            <th>Trip</th>
-            <th>Type</th>
-            <th>Price</th>
-            <th></th>
-        </tr>
 <%
     Connection conn = null;
     PreparedStatement ps = null;
@@ -109,89 +59,108 @@
         conn = DriverManager.getConnection(
             "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
 
+        // ================= TOP 5 TRANSIT LINES =================
+%>
+    <h3>Top 5 Transit Lines by Reservations</h3>
+    <table border="1" cellpadding="5">
+        <tr><th>Rank</th><th>Transit Line</th>
+            <th>Reservations</th><th>Total Revenue</th></tr>
+<%
+        ps = conn.prepareStatement(
+            "SELECT tl.name, COUNT(*) AS num_res, " +
+            "       SUM(r.total_fare) AS revenue " +
+            "FROM Reservation r " +
+            "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
+            "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
+            "GROUP BY tl.line_id, tl.name " +
+            "ORDER BY num_res DESC, revenue DESC " +
+            "LIMIT 5");
+        rs = ps.executeQuery();
+        int rank = 0;
+        while (rs.next()) {
+            rank++;
+%>
+        <tr>
+            <td><%= rank %></td>
+            <td><%= esc(rs.getString("name")) %></td>
+            <td><%= rs.getInt("num_res") %></td>
+            <td>$<%= String.format("%.2f", rs.getDouble("revenue")) %></td>
+        </tr>
+<%
+        }
+        if (rank == 0) {
+%>
+        <tr><td colspan="4">No reservations yet.</td></tr>
+<%
+        }
+        rs.close();
+        ps.close();
+%>
+    </table>
+    <hr>
+
+    <h3>Reservation List</h3>
+    <table border="1" cellpadding="5">
+        <tr>
+            <th>Res #</th><th>Customer</th><th>Transit Line</th>
+            <th>Train</th><th>Booked On</th><th>Departure</th>
+            <th>Fare Paid</th>
+        </tr>
+<%
+        // ================= RESERVATION SEARCH =================
         String sql =
-            "SELECT r.reservation_id, r.passenger_username, r.reservation_date, " +
-            "       r.trip_type, r.passenger_type, " +
-            "       tl.name AS line_name, tl.fare, " +
-            "       sc.train_id, " +
-            "       s.station_name, s.city, s.state, " +
+            "SELECT r.reservation_id, r.username, r.reservation_date, " +
+            "       r.total_fare, tl.name AS line_name, sc.train_id, " +
             "       ts.departure_datetime " +
             "FROM Reservation r " +
-            "JOIN Schedule sc    ON r.schedule_id = sc.schedule_id " +
+            "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
             "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
-            "JOIN TrainStop ts   ON r.stop_id = ts.stop_id " +
-            "JOIN Station s      ON ts.station_id = s.station_id " +
+            "JOIN TrainStop ts ON sc.stop_id = ts.stop_id " +
             "WHERE 1=1 ";
-
-        if (!filterUser.isEmpty()) {
-            sql += "AND r.passenger_username LIKE ? ";
-        }
-        if (!filterLine.isEmpty()) {
-            sql += "AND tl.name LIKE ? ";
-        }
-        sql += "ORDER BY ts.departure_datetime";
+        if (!custSearch.isEmpty()) sql += "AND r.username LIKE ? ";
+        if (!lineSearch.isEmpty()) sql += "AND tl.name LIKE ? ";
+        sql += "ORDER BY r.reservation_date DESC";
 
         ps = conn.prepareStatement(sql);
         int idx = 1;
-        if (!filterUser.isEmpty()) {
-            ps.setString(idx++, "%" + filterUser + "%");
-        }
-        if (!filterLine.isEmpty()) {
-            ps.setString(idx++, "%" + filterLine + "%");
-        }
+        if (!custSearch.isEmpty()) ps.setString(idx++, "%" + custSearch + "%");
+        if (!lineSearch.isEmpty()) ps.setString(idx++, "%" + lineSearch + "%");
         rs = ps.executeQuery();
 
         boolean any = false;
         int count = 0;
-        double total = 0;
+        double revenue = 0;
         while (rs.next()) {
             any = true;
             count++;
-            double price = computePrice(
-                rs.getInt("fare"),
-                rs.getString("passenger_type"),
-                rs.getString("trip_type"));
-            total += price;
+            revenue += rs.getDouble("total_fare");
 %>
         <tr>
             <td><%= rs.getInt("reservation_id") %></td>
-            <td><%= rs.getString("passenger_username") %></td>
-            <td><%= rs.getDate("reservation_date") %></td>
-            <td><%= rs.getString("line_name") %></td>
+            <td><%= esc(rs.getString("username")) %></td>
+            <td><%= esc(rs.getString("line_name")) %></td>
             <td><%= rs.getInt("train_id") %></td>
-            <td><%= rs.getString("station_name") %>
-                (<%= rs.getString("city") %>, <%= rs.getString("state") %>)</td>
+            <td><%= rs.getTimestamp("reservation_date") %></td>
             <td><%= rs.getTimestamp("departure_datetime") %></td>
-            <td><%= rs.getString("trip_type") %></td>
-            <td><%= rs.getString("passenger_type") %></td>
-            <td>$<%= String.format("%.2f", price) %></td>
-            <td>
-                <a href="adminreservations.jsp?cancel_id=<%= rs.getInt("reservation_id") %>&filter_user=<%= filterUser %>&filter_line=<%= filterLine %>"
-                   onclick="return confirm('Cancel this reservation?');">
-                    Cancel
-                </a>
-            </td>
+            <td>$<%= String.format("%.2f", rs.getDouble("total_fare")) %></td>
         </tr>
 <%
         }
         if (!any) {
 %>
-        <tr><td colspan="11">No reservations found.</td></tr>
+        <tr><td colspan="7">No reservations match your search.</td></tr>
 <%
         } else {
 %>
         <tr>
-            <td colspan="9" align="right">
-                <b>Total (<%= count %> reservation<%= count == 1 ? "" : "s" %>):</b>
-            </td>
-            <td><b>$<%= String.format("%.2f", total) %></b></td>
-            <td></td>
+            <td colspan="6"><b>Total (<%= count %> reservations)</b></td>
+            <td><b>$<%= String.format("%.2f", revenue) %></b></td>
         </tr>
 <%
         }
     } catch (Exception e) {
 %>
-        <tr><td colspan="11">Error: <%= e.getMessage() %></td></tr>
+        <tr><td colspan="7">Error: <%= esc(e.getMessage()) %></td></tr>
 <%
     } finally {
         if (rs != null) rs.close();
