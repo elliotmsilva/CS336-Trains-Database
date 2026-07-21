@@ -43,8 +43,12 @@ CREATE TABLE Forum (
     message_id INT NOT NULL AUTO_INCREMENT,
     message_date DATETIME NOT NULL,
     body_text VARCHAR(500) NOT NULL,
-    
-    PRIMARY KEY (message_id)
+    username VARCHAR(50) NOT NULL,
+    reply_to INT NULL,
+
+    PRIMARY KEY (message_id),
+    FOREIGN KEY (reply_to) REFERENCES Forum (message_id)
+        ON DELETE CASCADE
 ) ENGINE = InnoDB;
 
 CREATE TABLE Employee (
