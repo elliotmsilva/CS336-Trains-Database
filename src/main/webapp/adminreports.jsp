@@ -11,22 +11,22 @@
     }
 %>
 <%
-    // ---- session check (admin only) ----
+    // admin session check
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"admin".equals(role)) {
+    if (username == null || !"manager".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
 
-    // ---- report type: WHITELIST ONLY ----
+    // whitelist check
     String report = request.getParameter("report");
     String groupExpr, groupLabel;
     if ("line".equals(report)) {
         groupExpr = "tl.name";
         groupLabel = "Transit Line";
     } else if ("customer".equals(report)) {
-        groupExpr = "r.username";
+        groupExpr = "CONCAT(p.first_name, ' ', p.last_name)";
         groupLabel = "Customer";
     } else {
         report = "month";
@@ -34,7 +34,7 @@
         groupLabel = "Month";
     }
 
-    // ---- optional date range ----
+    // checking date range
     String fromDate = request.getParameter("from_date");
     String toDate = request.getParameter("to_date");
     if (fromDate == null) fromDate = "";
@@ -86,17 +86,25 @@
     try {
         Class.forName("com.mysql.cj.jdbc.Driver");
         conn = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+            "jdbc:mysql://localhost:3306/cs336project", "root", "es1242");
 
-        // groupExpr is whitelisted above -- never user input
+        // checking fare paid
+        String fareExpr =
+            "(tl.fare " +
+            " * (CASE r.passenger_type WHEN 'Child' THEN 0.75 " +
+            "         WHEN 'Senior' THEN 0.50 ELSE 1.0 END) " +
+            " * (CASE r.trip_type WHEN 'round-trip' THEN 2 ELSE 1 END))";
+
+        // groupExpr whitelist check
         String sql =
             "SELECT " + groupExpr + " AS grp, " +
             "       COUNT(*) AS num_res, " +
-            "       SUM(r.total_fare) AS revenue, " +
-            "       AVG(r.total_fare) AS avg_fare " +
+            "       SUM(" + fareExpr + ") AS revenue, " +
+            "       AVG(" + fareExpr + ") AS avg_fare " +
             "FROM Reservation r " +
             "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
             "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
+            "JOIN Passenger p ON r.passenger_username = p.username " +
             "WHERE 1=1 ";
         if (!fromDate.isEmpty()) sql += "AND r.reservation_date >= ? ";
         if (!toDate.isEmpty())   sql += "AND r.reservation_date < DATE_ADD(?, INTERVAL 1 DAY) ";
@@ -147,6 +155,67 @@
         if (rs != null) rs.close();
         if (ps != null) ps.close();
         if (conn != null) conn.close();
+    }
+%>
+    </table>
+    <hr>
+
+    <h3>Best Customers (Top 5 by Revenue)</h3>
+    <table border="1" cellpadding="5">
+        <tr><th>Rank</th><th>Customer</th>
+            <th>Reservations</th><th>Total Revenue</th></tr>
+<%
+    Connection bcConn = null;
+    PreparedStatement bcPs = null;
+    ResultSet bcRs = null;
+    try {
+        Class.forName("com.mysql.cj.jdbc.Driver");
+        bcConn = DriverManager.getConnection(
+            "jdbc:mysql://localhost:3306/cs336project", "root", "es1242");
+
+        // Fare rule (dont know how to check for sync update)
+        String bcFareExpr =
+            "(tl.fare " +
+            " * (CASE r.passenger_type WHEN 'Child' THEN 0.75 " +
+            "         WHEN 'Senior' THEN 0.50 ELSE 1.0 END) " +
+            " * (CASE r.trip_type WHEN 'round-trip' THEN 2 ELSE 1 END))";
+
+        bcPs = bcConn.prepareStatement(
+            "SELECT p.username, CONCAT(p.first_name, ' ', p.last_name) AS full_name, " +
+            "       COUNT(*) AS num_res, SUM(" + bcFareExpr + ") AS revenue " +
+            "FROM Reservation r " +
+            "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
+            "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
+            "JOIN Passenger p ON r.passenger_username = p.username " +
+            "GROUP BY p.username, full_name " +
+            "ORDER BY revenue DESC " +
+            "LIMIT 5");
+        bcRs = bcPs.executeQuery();
+        int bcRank = 0;
+        while (bcRs.next()) {
+            bcRank++;
+%>
+        <tr>
+            <td><%= bcRank %></td>
+            <td><%= esc(bcRs.getString("full_name")) %> (<%= esc(bcRs.getString("username")) %>)</td>
+            <td><%= bcRs.getInt("num_res") %></td>
+            <td>$<%= String.format("%.2f", bcRs.getDouble("revenue")) %></td>
+        </tr>
+<%
+        }
+        if (bcRank == 0) {
+%>
+        <tr><td colspan="4">No reservations yet.</td></tr>
+<%
+        }
+    } catch (Exception e) {
+%>
+        <tr><td colspan="4">Error: <%= esc(e.getMessage()) %></td></tr>
+<%
+    } finally {
+        if (bcRs != null) bcRs.close();
+        if (bcPs != null) bcPs.close();
+        if (bcConn != null) bcConn.close();
     }
 %>
     </table>

@@ -11,15 +11,15 @@
     }
 %>
 <%
-    // ---- session check (admin only) ----
+    // admin session check
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"admin".equals(role)) {
+    if (username == null || !"manager".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
 
-    // ---- search params ----
+    // searching params
     String custSearch = request.getParameter("customer");
     String lineSearch = request.getParameter("line");
     if (custSearch == null) custSearch = "";
@@ -41,7 +41,7 @@
     </p>
 
     <form method="get" action="adminreservations.jsp">
-        Customer username:
+        Customer (username or name):
         <input type="text" name="customer" value="<%= esc(custSearch) %>">
         Transit line:
         <input type="text" name="line" value="<%= esc(lineSearch) %>">
@@ -57,18 +57,25 @@
     try {
         Class.forName("com.mysql.cj.jdbc.Driver");
         conn = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+            "jdbc:mysql://localhost:3306/cs336project", "root", "es1242");
 
-        // ================= TOP 5 TRANSIT LINES =================
+        // top 5 transit lines
 %>
     <h3>Top 5 Transit Lines by Reservations</h3>
     <table border="1" cellpadding="5">
         <tr><th>Rank</th><th>Transit Line</th>
             <th>Reservations</th><th>Total Revenue</th></tr>
 <%
+        // fare paid per reservation 
+        String fareExpr =
+            "(tl.fare " +
+            " * (CASE r.passenger_type WHEN 'Child' THEN 0.75 " +
+            "         WHEN 'Senior' THEN 0.50 ELSE 1.0 END) " +
+            " * (CASE r.trip_type WHEN 'round-trip' THEN 2 ELSE 1 END))";
+
         ps = conn.prepareStatement(
             "SELECT tl.name, COUNT(*) AS num_res, " +
-            "       SUM(r.total_fare) AS revenue " +
+            "       SUM(" + fareExpr + ") AS revenue " +
             "FROM Reservation r " +
             "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
             "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
@@ -107,23 +114,34 @@
             <th>Fare Paid</th>
         </tr>
 <%
-        // ================= RESERVATION SEARCH =================
+        // searching reservation code
         String sql =
-            "SELECT r.reservation_id, r.username, r.reservation_date, " +
-            "       r.total_fare, tl.name AS line_name, sc.train_id, " +
+            "SELECT r.reservation_id, r.passenger_username, " +
+            "       CONCAT(p.first_name, ' ', p.last_name) AS full_name, " +
+            "       r.reservation_date, " + fareExpr + " AS fare_paid, " +
+            "       tl.name AS line_name, sc.train_id, " +
             "       ts.departure_datetime " +
             "FROM Reservation r " +
             "JOIN Schedule sc ON r.schedule_id = sc.schedule_id " +
             "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
             "JOIN TrainStop ts ON sc.stop_id = ts.stop_id " +
+            "JOIN Passenger p ON r.passenger_username = p.username " +
             "WHERE 1=1 ";
-        if (!custSearch.isEmpty()) sql += "AND r.username LIKE ? ";
+        if (!custSearch.isEmpty()) {
+            sql += "AND (r.passenger_username LIKE ? " +
+                   "     OR p.first_name LIKE ? OR p.last_name LIKE ?) ";
+        }
         if (!lineSearch.isEmpty()) sql += "AND tl.name LIKE ? ";
         sql += "ORDER BY r.reservation_date DESC";
 
         ps = conn.prepareStatement(sql);
         int idx = 1;
-        if (!custSearch.isEmpty()) ps.setString(idx++, "%" + custSearch + "%");
+        if (!custSearch.isEmpty()) {
+            String cl = "%" + custSearch + "%";
+            ps.setString(idx++, cl);
+            ps.setString(idx++, cl);
+            ps.setString(idx++, cl);
+        }
         if (!lineSearch.isEmpty()) ps.setString(idx++, "%" + lineSearch + "%");
         rs = ps.executeQuery();
 
@@ -133,16 +151,16 @@
         while (rs.next()) {
             any = true;
             count++;
-            revenue += rs.getDouble("total_fare");
+            revenue += rs.getDouble("fare_paid");
 %>
         <tr>
             <td><%= rs.getInt("reservation_id") %></td>
-            <td><%= esc(rs.getString("username")) %></td>
+            <td><%= esc(rs.getString("full_name")) %> (<%= esc(rs.getString("passenger_username")) %>)</td>
             <td><%= esc(rs.getString("line_name")) %></td>
             <td><%= rs.getInt("train_id") %></td>
-            <td><%= rs.getTimestamp("reservation_date") %></td>
+            <td><%= rs.getDate("reservation_date") %></td>
             <td><%= rs.getTimestamp("departure_datetime") %></td>
-            <td>$<%= String.format("%.2f", rs.getDouble("total_fare")) %></td>
+            <td>$<%= String.format("%.2f", rs.getDouble("fare_paid")) %></td>
         </tr>
 <%
         }

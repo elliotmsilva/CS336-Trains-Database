@@ -11,17 +11,17 @@
     }
 %>
 <%
-    // ---- session check (admin only) ----
+    // admin session check
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"admin".equals(role)) {
+    if (username == null || !"manager".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
 
     String message = null;
 
-    // ---- handle add / update / delete (POST only) ----
+    // add update delete calls
     if ("POST".equalsIgnoreCase(request.getMethod())) {
         String action = request.getParameter("action");
         Connection mconn = null;
@@ -29,7 +29,7 @@
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
             mconn = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+                "jdbc:mysql://localhost:3306/cs336project", "root", "es1242");
 
             if ("add".equals(action)) {
                 String newUser = request.getParameter("emp_username");
@@ -43,13 +43,14 @@
                     message = "Username and password are required.";
                 } else {
                     mps = mconn.prepareStatement(
-                        "INSERT INTO Employee (username, password, first_name, last_name, ssn) " +
-                        "VALUES (?, ?, ?, ?, ?)");
+                        "INSERT INTO Employee (username, password, first_name, last_name, ssn, role) " +
+                        "VALUES (?, ?, ?, ?, ?, ?)");
                     mps.setString(1, newUser.trim());
                     mps.setString(2, newPass);
                     mps.setString(3, fname);
                     mps.setString(4, lname);
                     mps.setString(5, ssn);
+                    mps.setString(6, "rep");
                     mps.executeUpdate();
                     message = "Representative added.";
                 }
@@ -64,7 +65,7 @@
                 if (newPass != null && !newPass.isEmpty()) {
                     mps = mconn.prepareStatement(
                         "UPDATE Employee SET password = ?, first_name = ?, " +
-                        "last_name = ?, ssn = ? WHERE username = ?");
+                        "last_name = ?, ssn = ? WHERE username = ? AND role = 'rep'");
                     mps.setString(1, newPass);
                     mps.setString(2, fname);
                     mps.setString(3, lname);
@@ -74,7 +75,7 @@
                     // blank password field = keep existing password
                     mps = mconn.prepareStatement(
                         "UPDATE Employee SET first_name = ?, last_name = ?, " +
-                        "ssn = ? WHERE username = ?");
+                        "ssn = ? WHERE username = ? AND role = 'rep'");
                     mps.setString(1, fname);
                     mps.setString(2, lname);
                     mps.setString(3, ssn);
@@ -87,7 +88,7 @@
             } else if ("delete".equals(action)) {
                 String target = request.getParameter("emp_username");
                 mps = mconn.prepareStatement(
-                    "DELETE FROM Employee WHERE username = ?");
+                    "DELETE FROM Employee WHERE username = ? AND role = 'rep'");
                 mps.setString(1, target);
                 int rows = mps.executeUpdate();
                 message = (rows > 0) ? "Representative deleted."
@@ -103,7 +104,7 @@
         }
     }
 
-    // which rep (if any) is being edited
+    // check which one is being edited
     String editing = request.getParameter("edit");
 %>
 <!DOCTYPE html>
@@ -150,11 +151,11 @@
     try {
         Class.forName("com.mysql.cj.jdbc.Driver");
         conn = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+            "jdbc:mysql://localhost:3306/cs336project", "root", "es1242");
 
         ps = conn.prepareStatement(
             "SELECT username, first_name, last_name, ssn " +
-            "FROM Employee ORDER BY username");
+            "FROM Employee WHERE role = 'rep' ORDER BY username");
         rs = ps.executeQuery();
 
         boolean any = false;
@@ -163,7 +164,7 @@
             String empUser = rs.getString("username");
 
             if (empUser.equals(editing)) {
-                // ---- inline edit row ----
+           // inline row
 %>
         <tr>
             <form method="post" action="adminmanage.jsp">
@@ -187,7 +188,7 @@
         </tr>
 <%
             } else {
-                // ---- normal row ----
+                // in row
 %>
         <tr>
             <td><%= esc(empUser) %></td>
