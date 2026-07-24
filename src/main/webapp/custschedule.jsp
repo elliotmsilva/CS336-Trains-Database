@@ -2,98 +2,67 @@
     pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*" %>
 <%!
-    // ---- SAME fare rules as custreservation.jsp — keep these in sync! ----
-    private double computePrice(int baseFare, String passengerType, String tripType) {
-        double price = baseFare;
-        if ("Child".equals(passengerType)) {
-            price *= 0.75;   // 25% off
-        } else if ("Senior".equals(passengerType)) {
-            price *= 0.50;   // 50% off
-        }
-        if ("round-trip".equals(tripType)) {
-            price *= 2;
-        }
-        return price;
+    private String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 %>
 <%
-    // ---- session check (passenger only) ----
+    // ---- session check (customer only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"passenger".equals(role)) {
+    if (username == null || !"customer".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
 
-    String search = request.getParameter("search");
-    if (search == null) search = "";
+    // ---- read search params (GET: searches are bookmarkable/refreshable) ----
+    String keyword = request.getParameter("keyword");
+    if (keyword == null) keyword = "";
 
-    // schedule the user clicked "Book" on (null = none selected)
-    String bookScheduleId = request.getParameter("book_schedule_id");
-
-    // ---- handle booking form submission ----
-    String bookingMessage = null;
-    if ("POST".equalsIgnoreCase(request.getMethod())
-            && request.getParameter("confirm_booking") != null) {
-
-        String scheduleId = request.getParameter("schedule_id");
-        String tripType = request.getParameter("trip_type");
-        String passengerType = request.getParameter("passenger_type");
-
-        Connection bconn = null;
-        PreparedStatement bps = null;
-        try {
-            Class.forName("com.mysql.cj.jdbc.Driver");
-            bconn = DriverManager.getConnection(
-                "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
-
-            // stop_id is copied FROM the schedule row itself, so the
-            // reservation can never reference a stop that contradicts
-            // its schedule (the schema wouldn't stop that; this does).
-            String insertSql =
-                "INSERT INTO Reservation " +
-                "(trip_type, passenger_type, reservation_date, " +
-                " schedule_id, passenger_username, stop_id) " +
-                "SELECT ?, ?, CURDATE(), sc.schedule_id, ?, sc.stop_id " +
-                "FROM Schedule sc WHERE sc.schedule_id = ?";
-
-            bps = bconn.prepareStatement(insertSql);
-            bps.setString(1, tripType);
-            bps.setString(2, passengerType);
-            bps.setString(3, username);
-            bps.setInt(4, Integer.parseInt(scheduleId));
-            int rows = bps.executeUpdate();
-
-            bookingMessage = (rows > 0)
-                ? "Reservation booked! View it on the My Reservations page."
-                : "That schedule no longer exists.";
-            bookScheduleId = null; // hide the form again
-        } catch (Exception e) {
-            bookingMessage = "Booking failed: " + e.getMessage();
-        } finally {
-            if (bps != null) bps.close();
-            if (bconn != null) bconn.close();
-        }
+    String stationParam = request.getParameter("station_id");
+    int stationId = -1;
+    if (stationParam != null && !stationParam.isEmpty()) {
+        try { stationId = Integer.parseInt(stationParam); }
+        catch (NumberFormatException nfe) { stationId = -1; }
     }
+
+    String dateParam = request.getParameter("date");
+    if (dateParam == null) dateParam = "";
+
+    // sort: whitelist only -- ORDER BY cannot be a bind parameter
+    String sortParam = request.getParameter("sort");
+    String orderBy;
+    if ("line".equals(sortParam)) {
+        orderBy = "tl.name, ts.departure_datetime";
+    } else {
+        sortParam = "dep";
+        orderBy = "ts.departure_datetime";
+    }
+
+    // query string to preserve state in links
+    String qs = "keyword=" + java.net.URLEncoder.encode(keyword, "UTF-8")
+              + (stationId != -1 ? "&station_id=" + stationId : "")
+              + (!dateParam.isEmpty()
+                    ? "&date=" + java.net.URLEncoder.encode(dateParam, "UTF-8") : "");
 %>
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Train Schedules</title>
+<title>Search Train Schedules</title>
 </head>
 <body>
-    <h1>Train Schedules</h1>
+    <h1>Search Train Schedules</h1>
     <p>
-        <a href="customerhome.jsp">Home</a> |
-        <a href="custreservation.jsp">My Reservations</a> |
+        <a href="custhome.jsp">Home</a> |
+        <a href="custreservations.jsp">My Reservations</a> |
         <a href="custforum.jsp">Forum</a> |
         <a href="logout.jsp">Logout</a>
     </p>
-
-<%  if (bookingMessage != null) { %>
-    <p><b><%= bookingMessage %></b></p>
-<%  } %>
 
 <%
     Connection conn = null;
@@ -104,66 +73,29 @@
         conn = DriverManager.getConnection(
             "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
 
-        // ---- booking form (shows only after clicking Book) ----
-        if (bookScheduleId != null) {
-            ps = conn.prepareStatement(
-                "SELECT sc.schedule_id, tl.name AS line_name, tl.fare, " +
-                "       s.station_name, ts.departure_datetime " +
-                "FROM Schedule sc " +
-                "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
-                "JOIN TrainStop ts   ON sc.stop_id = ts.stop_id " +
-                "JOIN Station s      ON ts.station_id = s.station_id " +
-                "WHERE sc.schedule_id = ?");
-            ps.setInt(1, Integer.parseInt(bookScheduleId));
-            rs = ps.executeQuery();
-            if (rs.next()) {
-                int fare = rs.getInt("fare");
-%>
-    <div style="border:1px solid black; padding:10px; margin-bottom:10px;">
-        <h3>Book: <%= rs.getString("line_name") %> from
-            <%= rs.getString("station_name") %>
-            (<%= rs.getTimestamp("departure_datetime") %>)</h3>
-        <p>
-            Prices &mdash;
-            Adult: $<%= String.format("%.2f", computePrice(fare, "Adult", "one-way")) %> |
-            Child: $<%= String.format("%.2f", computePrice(fare, "Child", "one-way")) %> |
-            Senior: $<%= String.format("%.2f", computePrice(fare, "Senior", "one-way")) %>
-            (one-way; round-trip is double)
-        </p>
-        <form method="post" action="custschedule.jsp">
-            <input type="hidden" name="schedule_id" value="<%= rs.getInt("schedule_id") %>">
-
-            Trip type:
-            <select name="trip_type">
-                <option value="one-way">One-way</option>
-                <option value="round-trip">Round-trip</option>
-            </select>
-
-            Passenger type:
-            <select name="passenger_type">
-                <option value="Adult">Adult</option>
-                <option value="Child">Child</option>
-                <option value="Senior">Senior</option>
-            </select>
-
-            <input type="submit" name="confirm_booking" value="Confirm Booking">
-            <a href="custschedule.jsp">Cancel</a>
-        </form>
-    </div>
-<%
-            } else {
-%>
-    <p><b>That schedule was not found.</b></p>
-<%
-            }
-            rs.close();
-            ps.close();
+        // ---- station dropdown ----
+        StringBuilder stationOpts = new StringBuilder(
+            "<option value=\"\">-- any station --</option>");
+        ps = conn.prepareStatement(
+            "SELECT station_id, station_name FROM Station ORDER BY station_name");
+        rs = ps.executeQuery();
+        while (rs.next()) {
+            int sid = rs.getInt("station_id");
+            stationOpts.append("<option value=\"").append(sid).append("\"")
+                       .append(sid == stationId ? " selected" : "")
+                       .append(">").append(esc(rs.getString("station_name")))
+                       .append("</option>");
         }
+        rs.close();
+        ps.close();
 %>
-
     <form method="get" action="custschedule.jsp">
-        Search by station, city, or line:
-        <input type="text" name="search" value="<%= search %>">
+        Transit line:
+        <input type="text" name="keyword" value="<%= esc(keyword) %>">
+        Line serves station:
+        <select name="station_id"><%= stationOpts %></select>
+        Departure date:
+        <input type="date" name="date" value="<%= esc(dateParam) %>">
         <input type="submit" value="Search">
         <a href="custschedule.jsp">Clear</a>
     </form>
@@ -171,36 +103,48 @@
 
     <table border="1" cellpadding="5">
         <tr>
-            <th>Schedule #</th>
-            <th>Transit Line</th>
+            <th><a href="custschedule.jsp?<%= qs %>&sort=line">Transit Line</a></th>
             <th>Train</th>
             <th>Station</th>
-            <th>Departure</th>
+            <th><a href="custschedule.jsp?<%= qs %>&sort=dep">Departure</a></th>
             <th>Arrival</th>
-            <th>Base Fare</th>
-            <th></th>
+            <th>Action</th>
         </tr>
 <%
+        // ---- main search query ----
         String sql =
-            "SELECT sc.schedule_id, tl.name AS line_name, tl.fare, sc.train_id, " +
-            "       s.station_name, s.city, s.state, " +
-            "       ts.arrival_datetime, ts.departure_datetime " +
+            "SELECT sc.schedule_id, sc.train_id, tl.name AS line_name, " +
+            "       s.station_name, ts.arrival_datetime, ts.departure_datetime " +
             "FROM Schedule sc " +
             "JOIN TransitLine tl ON sc.line_id = tl.line_id " +
-            "JOIN TrainStop ts   ON sc.stop_id = ts.stop_id " +
-            "JOIN Station s      ON ts.station_id = s.station_id ";
-
-        if (!search.isEmpty()) {
-            sql += "WHERE s.station_name LIKE ? OR tl.name LIKE ? OR s.city LIKE ? ";
+            "JOIN TrainStop ts ON sc.stop_id = ts.stop_id " +
+            "JOIN Station s ON ts.station_id = s.station_id " +
+            "WHERE 1=1 ";
+        if (!keyword.isEmpty()) {
+            sql += "AND tl.name LIKE ? ";
         }
-        sql += "ORDER BY ts.departure_datetime";
+        if (stationId != -1) {
+            // schedules on lines that SERVE this station (any of the
+            // line's stops), not just schedules stopping there
+            sql += "AND EXISTS (SELECT 1 FROM TrainStop ts2 " +
+                   "            WHERE ts2.line_id = sc.line_id " +
+                   "              AND ts2.station_id = ?) ";
+        }
+        if (!dateParam.isEmpty()) {
+            sql += "AND DATE(ts.departure_datetime) = ? ";
+        }
+        sql += "ORDER BY " + orderBy;
 
         ps = conn.prepareStatement(sql);
-        if (!search.isEmpty()) {
-            String like = "%" + search + "%";
-            ps.setString(1, like);
-            ps.setString(2, like);
-            ps.setString(3, like);
+        int idx = 1;
+        if (!keyword.isEmpty()) {
+            ps.setString(idx++, "%" + keyword + "%");
+        }
+        if (stationId != -1) {
+            ps.setInt(idx++, stationId);
+        }
+        if (!dateParam.isEmpty()) {
+            ps.setString(idx++, dateParam);
         }
         rs = ps.executeQuery();
 
@@ -209,28 +153,30 @@
             any = true;
 %>
         <tr>
-            <td><%= rs.getInt("schedule_id") %></td>
-            <td><%= rs.getString("line_name") %></td>
+            <td><%= esc(rs.getString("line_name")) %></td>
             <td><%= rs.getInt("train_id") %></td>
-            <td><%= rs.getString("station_name") %>
-                (<%= rs.getString("city") %>, <%= rs.getString("state") %>)</td>
+            <td><%= esc(rs.getString("station_name")) %></td>
             <td><%= rs.getTimestamp("departure_datetime") %></td>
             <td><%= rs.getTimestamp("arrival_datetime") %></td>
-            <td>$<%= String.format("%.2f", (double) rs.getInt("fare")) %></td>
             <td>
-                <a href="custschedule.jsp?book_schedule_id=<%= rs.getInt("schedule_id") %>">Book</a>
+                <form method="post" action="custreservations.jsp">
+                    <input type="hidden" name="action" value="book">
+                    <input type="hidden" name="schedule_id"
+                           value="<%= rs.getInt("schedule_id") %>">
+                    <input type="submit" value="Reserve">
+                </form>
             </td>
         </tr>
 <%
         }
         if (!any) {
 %>
-        <tr><td colspan="8">No schedules found.</td></tr>
+        <tr><td colspan="6">No schedules match your search.</td></tr>
 <%
         }
     } catch (Exception e) {
 %>
-        <tr><td colspan="8">Error: <%= e.getMessage() %></td></tr>
+    <p>Error: <%= esc(e.getMessage()) %></p>
 <%
     } finally {
         if (rs != null) rs.close();
