@@ -43,11 +43,73 @@
         orderBy = "ts.departure_datetime";
     }
 
-    // query string to preserve state in links
+    // query string to preserve state in links and redirects
     String qs = "keyword=" + java.net.URLEncoder.encode(keyword, "UTF-8")
               + (stationId != -1 ? "&station_id=" + stationId : "")
               + (!dateParam.isEmpty()
                     ? "&date=" + java.net.URLEncoder.encode(dateParam, "UTF-8") : "");
+
+    // ---- handle booking (POST), then redirect back to the search (GET) ----
+    if ("POST".equalsIgnoreCase(request.getMethod())
+            && "book".equals(request.getParameter("action"))) {
+
+        String msg = "error";
+        Connection bconn = null;
+        PreparedStatement bps = null;
+        ResultSet brs = null;
+        try {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            bconn = DriverManager.getConnection(
+                "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
+
+            int schedId = Integer.parseInt(request.getParameter("schedule_id"));
+
+            // verify the schedule exists before inserting
+            bps = bconn.prepareStatement(
+                "SELECT schedule_id FROM Schedule WHERE schedule_id = ?");
+            bps.setInt(1, schedId);
+            brs = bps.executeQuery();
+            if (!brs.next()) {
+                msg = "noschedule";
+            } else {
+                brs.close();
+                bps.close();
+                bps = bconn.prepareStatement(
+                    "INSERT INTO Reservation " +
+                    "(username, schedule_id, reservation_date) " +
+                    "VALUES (?, ?, NOW())");
+                bps.setString(1, username);
+                bps.setInt(2, schedId);
+                bps.executeUpdate();
+                msg = "booked";
+            }
+        } catch (NumberFormatException nfe) {
+            msg = "invalid";
+        } catch (Exception e) {
+            msg = "error";
+        } finally {
+            if (brs != null) brs.close();
+            if (bps != null) bps.close();
+            if (bconn != null) bconn.close();
+        }
+        // Post/Redirect/Get: refresh after booking re-runs the SEARCH,
+        // not the INSERT
+        response.sendRedirect("custschedule.jsp?" + qs + "&msg=" + msg);
+        return;
+    }
+
+    // ---- map msg code to display text (whitelist, never echo raw param) ----
+    String msgParam = request.getParameter("msg");
+    String message = null;
+    if ("booked".equals(msgParam)) {
+        message = "Reservation booked! See My Reservations to view or cancel it.";
+    } else if ("noschedule".equals(msgParam)) {
+        message = "No such schedule.";
+    } else if ("invalid".equals(msgParam)) {
+        message = "Invalid input.";
+    } else if ("error".equals(msgParam)) {
+        message = "Could not book reservation.";
+    }
 %>
 <!DOCTYPE html>
 <html>
@@ -63,6 +125,10 @@
         <a href="custforum.jsp">Forum</a> |
         <a href="logout.jsp">Logout</a>
     </p>
+
+<%  if (message != null) { %>
+    <p><b><%= esc(message) %></b></p>
+<%  } %>
 
 <%
     Connection conn = null;
@@ -159,7 +225,7 @@
             <td><%= rs.getTimestamp("departure_datetime") %></td>
             <td><%= rs.getTimestamp("arrival_datetime") %></td>
             <td>
-                <form method="post" action="custreservations.jsp">
+                <form method="post" action="custschedule.jsp?<%= qs %>">
                     <input type="hidden" name="action" value="book">
                     <input type="hidden" name="schedule_id"
                            value="<%= rs.getInt("schedule_id") %>">
