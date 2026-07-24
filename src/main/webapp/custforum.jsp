@@ -13,7 +13,7 @@
     // ---- session check (passenger only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"passenger".equals(role)) {
+    if (username == null || !"customer".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
