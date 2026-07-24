@@ -1,6 +1,7 @@
 <%@ page language="java" contentType="text/html; charset=UTF-8"
     pageEncoding="UTF-8"%>
 <%@ page import="java.sql.*" %>
+<%@ page import="com.cs336.dbmstrainsproject.*" %>
 <%!
     private String esc(String s) {
         if (s == null) return "";
@@ -11,10 +12,10 @@
     }
 %>
 <%
-    // ---- session check (employee/rep only) ----
+    // ---- session check (rep only) ----
     String username = (String) session.getAttribute("username");
     String role = (String) session.getAttribute("role");
-    if (username == null || !"employee".equals(role)) {
+    if (username == null || !"rep".equals(role)) {
         response.sendRedirect("login.jsp");
         return;
     }
@@ -37,17 +38,14 @@
         } else if (body.trim().length() > 500) {
             message = "Reply is too long (500 character max).";
         } else {
-            Connection fconn = null;
+            ApplicationDB fdb = new ApplicationDB();
+            Connection fconn = fdb.getConnection();
             PreparedStatement fps = null;
             ResultSet frs = null;
             try {
-                Class.forName("com.mysql.cj.jdbc.Driver");
-                fconn = DriverManager.getConnection(
-                    "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
-
                 int qid = Integer.parseInt(qidStr);
 
-                // verify the target is a real QUESTION (not an answer)
+                // only reply to a real question, not another reply
                 fps = fconn.prepareStatement(
                     "SELECT message_id FROM Forum " +
                     "WHERE message_id = ? AND reply_to IS NULL");
@@ -74,24 +72,23 @@
             } finally {
                 if (frs != null) frs.close();
                 if (fps != null) fps.close();
-                if (fconn != null) fconn.close();
+                if (fconn != null) fdb.closeConnection(fconn);
             }
         }
     }
 
-    // which question's reply form is open
     String replyingTo = request.getParameter("reply_to");
 %>
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Forum - Answer Questions</title>
+<title>Customer Q&amp;A</title>
 </head>
 <body>
     <h1>Customer Questions</h1>
     <p>
-        <a href="rephome.jsp">Home</a> |
+        <a href="representativehome.jsp">Home</a> |
         <a href="repschedule.jsp">Manage Schedules</a> |
         <a href="logout.jsp">Logout</a>
     </p>
@@ -103,25 +100,19 @@
     <form method="get" action="repforum.jsp">
         Search by keyword:
         <input type="text" name="keyword" value="<%= esc(keyword) %>">
-        <label>
-            <input type="checkbox" name="unanswered" value="1"
-                <%= unansweredOnly ? "checked" : "" %>>
-            Unanswered only
-        </label>
+        <label><input type="checkbox" name="unanswered" value="1"
+            <%= unansweredOnly ? "checked" : "" %>> Unanswered only</label>
         <input type="submit" value="Search">
         <a href="repforum.jsp">Clear</a>
     </form>
     <br>
 <%
-    Connection conn = null;
+    ApplicationDB db = new ApplicationDB();
+    Connection conn = db.getConnection();
     PreparedStatement ps = null;
     PreparedStatement aps = null;
     ResultSet rs = null;
     try {
-        Class.forName("com.mysql.cj.jdbc.Driver");
-        conn = DriverManager.getConnection(
-            "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
-
         String sql =
             "SELECT message_id, message_date, body_text, username " +
             "FROM Forum f WHERE reply_to IS NULL ";
@@ -130,7 +121,7 @@
         }
         if (unansweredOnly) {
             sql += "AND NOT EXISTS (SELECT 1 FROM Forum a " +
-                   "               WHERE a.reply_to = f.message_id) ";
+                   "WHERE a.reply_to = f.message_id) ";
         }
         sql += "ORDER BY message_date DESC";
 
@@ -150,7 +141,7 @@
         <i>asked by <%= esc(rs.getString("username")) %>
            on <%= rs.getTimestamp("message_date") %></i>
 <%
-            // ---- existing answers ----
+            // answers to this question
             aps = conn.prepareStatement(
                 "SELECT body_text, username, message_date FROM Forum " +
                 "WHERE reply_to = ? ORDER BY message_date");
@@ -176,7 +167,6 @@
             ars.close();
             aps.close();
 
-            // ---- reply form (open only for the selected question) ----
             if (String.valueOf(qid).equals(replyingTo)) {
 %>
         <form method="post" action="repforum.jsp" style="margin-top:8px;">
@@ -199,7 +189,7 @@
         }
         if (!any) {
 %>
-    <p><%= unansweredOnly ? "No unanswered questions. All caught up!"
+    <p><%= unansweredOnly ? "No unanswered questions."
          : keyword.isEmpty() ? "No questions yet."
          : "No questions match your search." %></p>
 <%
@@ -211,7 +201,8 @@
     } finally {
         if (rs != null) rs.close();
         if (ps != null) ps.close();
-        if (conn != null) conn.close();
+        if (aps != null) aps.close();
+        if (conn != null) db.closeConnection(conn);
     }
 %>
 </body>
