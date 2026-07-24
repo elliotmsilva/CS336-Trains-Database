@@ -21,59 +21,33 @@
 
     String message = null;
 
-    // ---- handle book / cancel (POST only) ----
-    if ("POST".equalsIgnoreCase(request.getMethod())) {
-        String action = request.getParameter("action");
+    // ---- handle cancel (POST only) ----
+    if ("POST".equalsIgnoreCase(request.getMethod())
+            && "cancel".equals(request.getParameter("action"))) {
+
         Connection mconn = null;
         PreparedStatement mps = null;
-        ResultSet mrs = null;
         try {
             Class.forName("com.mysql.cj.jdbc.Driver");
             mconn = DriverManager.getConnection(
                 "jdbc:mysql://localhost:3306/cs336project", "root", "yourpassword");
 
-            if ("book".equals(action)) {
-                int schedId = Integer.parseInt(request.getParameter("schedule_id"));
+            int resId = Integer.parseInt(request.getParameter("reservation_id"));
 
-                // verify the schedule exists before inserting
-                mps = mconn.prepareStatement(
-                    "SELECT schedule_id FROM Schedule WHERE schedule_id = ?");
-                mps.setInt(1, schedId);
-                mrs = mps.executeQuery();
-                if (!mrs.next()) {
-                    message = "No such schedule.";
-                } else {
-                    mrs.close();
-                    mps.close();
-                    mps = mconn.prepareStatement(
-                        "INSERT INTO Reservation " +
-                        "(username, schedule_id, reservation_date) " +
-                        "VALUES (?, ?, NOW())");
-                    mps.setString(1, username);
-                    mps.setInt(2, schedId);
-                    mps.executeUpdate();
-                    message = "Reservation booked!";
-                }
-
-            } else if ("cancel".equals(action)) {
-                int resId = Integer.parseInt(request.getParameter("reservation_id"));
-
-                // WHERE username = ? -- customers can only cancel their own
-                mps = mconn.prepareStatement(
-                    "DELETE FROM Reservation " +
-                    "WHERE reservation_id = ? AND username = ?");
-                mps.setInt(1, resId);
-                mps.setString(2, username);
-                int rows = mps.executeUpdate();
-                message = (rows > 0) ? "Reservation cancelled."
-                                     : "No such reservation.";
-            }
+            // WHERE username = ? -- customers can only cancel their own
+            mps = mconn.prepareStatement(
+                "DELETE FROM Reservation " +
+                "WHERE reservation_id = ? AND username = ?");
+            mps.setInt(1, resId);
+            mps.setString(2, username);
+            int rows = mps.executeUpdate();
+            message = (rows > 0) ? "Reservation cancelled."
+                                 : "No such reservation.";
         } catch (NumberFormatException nfe) {
             message = "Invalid input.";
         } catch (Exception e) {
             message = "Error: " + e.getMessage();
         } finally {
-            if (mrs != null) mrs.close();
             if (mps != null) mps.close();
             if (mconn != null) mconn.close();
         }
@@ -168,11 +142,5 @@
     }
 %>
     </table>
-</body>
-</html>
-
-    </table>
-    <p><i>Column headers are clickable to sort. To book one of these,
-        go to <a href="custreservation.jsp">My Reservations</a>.</i></p>
 </body>
 </html>
